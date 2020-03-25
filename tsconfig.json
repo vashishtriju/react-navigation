@@ -11,6 +11,7 @@
       "react-navigation-stack": ["./packages/stack/src"],
       "react-navigation-tabs": ["./packages/tabs/src"],
     },
+    "allowJs": true,
     "composite": true,
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
