@@ -41,7 +41,6 @@ export default function getEventManager(target) {
 
   return {
     addListener,
-    removeListener,
 
     /**
      * @param {string} type

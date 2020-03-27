@@ -12,14 +12,14 @@ import * as React from 'react';
  * @prop {string} type
  * @prop {object} action
  * @prop {State} state
- * @prop {State | undefined} lastState
+ * @prop {State | {key: string, routes?: undefined, index?: undefined, isTransitioning?: undefined} | undefined} lastState
  * @prop {string} [context]
  *
  * @typedef {object} Payload
  * @prop {string} type
  * @prop {object} action
  * @prop {State | {key: string}} state
- * @prop {State | {key: string}|undefined} lastState
+ * @prop {State | {key: string} | undefined} lastState
  * @prop {string} [context]
  *
  * @typedef {object} Props
@@ -37,26 +37,60 @@ export default class NavigationEventManager extends React.Component {
   componentDidMount() {
     const { navigation } = this.props;
 
-    navigation.addListener('action', this._handleAction);
-    navigation.addListener('willFocus', this._handleWillFocus);
-    navigation.addListener('willBlur', this._handleWillBlur);
+    this._actionSubscription = navigation.addListener(
+      'action',
+      this._handleAction
+    );
+
+    this._willFocusSubscription = navigation.addListener(
+      'willFocus',
+      this._handleWillFocus
+    );
+
+    this._willBlurSubscription = navigation.addListener(
+      'willBlur',
+      this._handleWillBlur
+    );
   }
 
   componentWillUnmount() {
-    const { navigation } = this.props;
-
-    navigation.removeListener('action', this._handleAction);
-    navigation.removeListener('willFocus', this._handleWillBlur);
-    navigation.removeListener('willBlur', this._handleWillBlur);
+    this._actionSubscription?.remove();
+    this._willFocusSubscription?.remove();
+    this._willBlurSubscription?.remove();
   }
 
   /**
+   * @type {{ remove(): void } | undefined}
+   */
+  _actionSubscription;
+
+  /**
+   * @type {{ remove(): void } | undefined}
+   */
+  _willFocusSubscription;
+
+  /**
+   * @type {{ remove(): void } | undefined}
+   */
+  _willBlurSubscription;
+
+  /**
+   * @type {string | undefined}
+   */
+  _lastWillBlurKey;
+
+  /**
+   * The 'action' event will fire when navigation state changes.
+   * Detect if the focused route changed here and emit appropriate events.
+   *
    * @param {ParentPayload} payload
    */
   _handleAction = ({ state, lastState, action, type, context }) => {
     const { onEvent } = this.props;
 
-    const previous = lastState?.routes[lastState.index];
+    const previous = lastState
+      ? lastState.routes?.[lastState.index]
+      : undefined;
     const current = state.routes[state.index];
 
     const payload = {
@@ -68,15 +102,15 @@ export default class NavigationEventManager extends React.Component {
     };
 
     if (previous?.key !== current.key) {
-      this._handleFocusedKey(current.key, payload);
+      this._handleFocusedKey(previous?.key, current.key, payload);
     }
 
     if (
       lastState?.isTransitioning !== state.isTransitioning &&
       state.isTransitioning === false
     ) {
-      if (previous) {
-        onEvent(previous.key, 'didBlur', payload);
+      if (this._lastWillBlurKey) {
+        onEvent(this._lastWillBlurKey, 'didBlur', payload);
       }
 
       onEvent(current.key, 'didFocus', payload);
@@ -92,11 +126,10 @@ export default class NavigationEventManager extends React.Component {
     const { navigation } = this.props;
     const route = navigation.state.routes[navigation.state.index];
 
-    this._lastFocusedKey = route.key;
     this._emitFocus(route.key, {
       context: `${route.key}:${action.type}_${context || 'Root'}`,
       state: route,
-      lastState: lastState?.routes.find((r) => r.key === route.key),
+      lastState: lastState?.routes?.find((r) => r.key === route.key),
       action,
       type,
     });
@@ -109,46 +142,39 @@ export default class NavigationEventManager extends React.Component {
     const { navigation } = this.props;
     const route = navigation.state.routes[navigation.state.index];
 
-    this._lastFocusedKey = undefined;
     this._emitBlur(route.key, {
       context: `${route.key}:${action.type}_${context || 'Root'}`,
       state: route,
-      lastState: lastState?.routes.find((r) => r.key === route.key),
+      lastState: lastState?.routes?.find((r) => r.key === route.key),
       action,
       type,
     });
   };
 
   /**
-   * @param {string} key
+   * @param {string | undefined} previousKey
+   * @param {string} currentKey
    * @param {Payload} payload
    */
-  _handleFocusedKey = (key, payload) => {
+  _handleFocusedKey = (previousKey, currentKey, payload) => {
     const { navigation } = this.props;
 
-    const lastFocusedKey = this._lastFocusedKey;
-
-    this._lastFocusedKey = key;
-
-    // We wouldn't have `lastFocusedKey` on initial mount
-    // Fire focus event for the current route on mount if there's no parent navigator
-    if (lastFocusedKey === undefined && !navigation.dangerouslyGetParent()) {
-      this._emitFocus(key, payload);
-    }
-
-    // We should only dispatch events when the focused key changed and navigator is focused
+    // We should only dispatch events when the navigator is focused
     // When navigator is not focused, screens inside shouldn't receive focused status either
-    if (lastFocusedKey === key || !navigation.isFocused()) {
+    if (!navigation.isFocused()) {
       return;
     }
 
-    if (lastFocusedKey === undefined) {
+    if (previousKey === undefined) {
       // Only fire events after initial mount
       return;
     }
 
-    this._emitFocus(key, payload);
-    this._emitBlur(lastFocusedKey, payload);
+    this._emitFocus(currentKey, payload);
+
+    if (previousKey) {
+      this._emitBlur(previousKey, payload);
+    }
   };
 
   /**
@@ -156,6 +182,10 @@ export default class NavigationEventManager extends React.Component {
    * @param {Payload} payload
    */
   _emitFocus = (target, payload) => {
+    if (this._lastWillBlurKey === target) {
+      this._lastWillBlurKey = undefined;
+    }
+
     const { navigation, onEvent } = this.props;
 
     onEvent(target, 'willFocus', payload);
@@ -170,6 +200,8 @@ export default class NavigationEventManager extends React.Component {
    * @param {Payload} payload
    */
   _emitBlur = (target, payload) => {
+    this._lastWillBlurKey = target;
+
     const { navigation, onEvent } = this.props;
 
     onEvent(target, 'willBlur', payload);
@@ -178,11 +210,6 @@ export default class NavigationEventManager extends React.Component {
       onEvent(target, 'didBlur', payload);
     }
   };
-
-  /**
-   * @type {string | undefined}
-   */
-  _lastFocusedKey;
 
   render() {
     return null;

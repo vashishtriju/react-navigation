@@ -78,7 +78,7 @@ function getChildNavigation(navigation, childKey, getCurrentParentNavigation) {
     };
     return children[childKey];
   } else {
-    const { addListener, removeListener, emit } = getEventManager(childKey);
+    const { addListener, emit } = getEventManager(childKey);
 
     children[childKey] = {
       ...actionHelpers,
@@ -113,7 +113,6 @@ function getChildNavigation(navigation, childKey, getCurrentParentNavigation) {
       getScreenProps: navigation.getScreenProps,
       dangerouslyGetParent: getCurrentParentNavigation,
       addListener,
-      removeListener,
       emit,
     };
 
