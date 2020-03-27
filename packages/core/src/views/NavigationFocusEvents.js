@@ -86,7 +86,13 @@ export default class NavigationEventManager extends React.Component {
    * @param {ParentPayload} payload
    */
   _handleAction = ({ state, lastState, action, type, context }) => {
-    const { onEvent } = this.props;
+    const { navigation, onEvent } = this.props;
+
+    // We should only emit events when the navigator is focused
+    // When navigator is not focused, screens inside shouldn't receive focused status either
+    if (!navigation.isFocused()) {
+      return;
+    }
 
     const previous = lastState
       ? lastState.routes?.[lastState.index]
@@ -102,7 +108,11 @@ export default class NavigationEventManager extends React.Component {
     };
 
     if (previous?.key !== current.key) {
-      this._handleFocusedKey(previous?.key, current.key, payload);
+      this._emitFocus(current.key, payload);
+
+      if (previous?.key) {
+        this._emitBlur(previous.key, payload);
+      }
     }
 
     if (
@@ -149,32 +159,6 @@ export default class NavigationEventManager extends React.Component {
       action,
       type,
     });
-  };
-
-  /**
-   * @param {string | undefined} previousKey
-   * @param {string} currentKey
-   * @param {Payload} payload
-   */
-  _handleFocusedKey = (previousKey, currentKey, payload) => {
-    const { navigation } = this.props;
-
-    // We should only dispatch events when the navigator is focused
-    // When navigator is not focused, screens inside shouldn't receive focused status either
-    if (!navigation.isFocused()) {
-      return;
-    }
-
-    if (previousKey === undefined) {
-      // Only fire events after initial mount
-      return;
-    }
-
-    this._emitFocus(currentKey, payload);
-
-    if (previousKey) {
-      this._emitBlur(previousKey, payload);
-    }
   };
 
   /**
